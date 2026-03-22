@@ -39,8 +39,13 @@ def main():
     class_weight_dict = dict(enumerate(class_weights))
     
     model = get_model()
-    model.fit(x_train, y_train, epochs=30, class_weight=class_weight_dict)
+    model.fit(x_train, y_train, epochs=50, class_weight=class_weight_dict)
     model.evaluate(x_test,  y_test, verbose=2)
+    y_pred = model.predict(x_test)
+    y_pred_classes = np.argmax(y_pred, axis=1)
+    y_true_classes = np.argmax(y_test, axis=1)
+    print(classification_report(y_true_classes, y_pred_classes))
+    print(confusion_matrix(y_true_classes, y_pred_classes))
     
     return 0
 
