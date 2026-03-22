@@ -26,13 +26,10 @@ def main():
 
     values, labels = load_data(sys.argv[1])
     labels = tf.keras.utils.to_categorical(labels)
-    print("Values[0] is: ", values[0])
-    print("labels[0] is: ", labels[0])
     
     x_train, x_test, y_train, y_test = train_test_split(
         np.array(values), np.array(labels), test_size=0.2
     )
-    
     y_integers = np.argmax(y_train, axis=1)
     class_weights = class_weight.compute_class_weight(
         class_weight='balanced',
@@ -42,7 +39,7 @@ def main():
     class_weight_dict = dict(enumerate(class_weights))
     
     model = get_model()
-    model.fit(x_train, y_train, epochs=50, class_weight=class_weight_dict)
+    model.fit(x_train, y_train, epochs=30, class_weight=class_weight_dict)
     model.evaluate(x_test,  y_test, verbose=2)
     
     return 0
@@ -56,27 +53,25 @@ def load_data(data_dir, window_size=WINDOW_SIZE):
 
     for file in files:
         df = pd.read_csv(file)
+        df['Value'] = df['Value'].ffill().bfill()
         df['TimeStamp'] = pd.to_datetime(df['TimeStamp'])
         
         # Feature Engineering (Normalized)
         df['hour'] = df['TimeStamp'].dt.hour / 23.0
         df['day'] = df['TimeStamp'].dt.dayofweek / 6.0
         df['Value_Diff'] = df['Value'].diff().fillna(0)
-        df['Value_Diff'] = (df['Value_Diff'] - df['Value_Diff'].mean()) / df['Value_Diff'].std()
+        std = df['Value_Diff'].std()
+        df['Value_Diff'] = (df['Value_Diff'] - df['Value_Diff'].mean()) / (std if std > 0 else 1.0)
         
         p95 = df['Value'].quantile(0.95)
-        df['Value'] = df['Value'] / p95 
-        # Then clip it so anything above the 95th percentile stays at 1.0
+        df['Value'] = df['Value'] / (p95 if p95 > 0 else 1.0)
         df['Value'] = df['Value'].clip(0, 1)
         
         features = df[['Value', 'hour', 'day', 'Value_Diff']].values
         labels = df['Label'].values
 
-        # 2. Create sliding windows for THIS specific file
-        # We do it per file so the end of one file doesn't "bleed" into the start of another
         for i in range(len(features) - window_size + 1):
             all_features.append(features[i : i + window_size])
-            # Assign label to the last step of the window
             all_labels.append(labels[i + window_size - 1])
     
     # 3. Convert lists to final NumPy arrays
@@ -107,7 +102,11 @@ def get_model():
         optimizer="adam",
         # Using CategoricalCrossentropy because you used to_categorical in main
         loss="categorical_crossentropy",
-        metrics=["accuracy"]
+        metrics=[
+            "accuracy",
+            tf.keras.metrics.AUC(name="auc"),
+            tf.keras.metrics.Precision(name="precision"),
+            tf.keras.metrics.Recall(name="recall")]
     )
     return model
     
